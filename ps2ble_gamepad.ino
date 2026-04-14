@@ -91,7 +91,7 @@ bool tryConnectController() {
   if (!psx.begin()) return false;
 
   Serial.println(F("Controller found!"));
-  delay(300);
+  delay(1000);
 
   if (!psx.enterConfigMode()) {
     Serial.println(F("Cannot enter config mode"));
@@ -156,6 +156,10 @@ void sendControllerState() {
 void setup() {
   Serial.begin(115200);
 
+  if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_GPIO) {
+    Serial.println(F("Woke from sleep"));
+  }
+
   bleGamepadConfig.setAutoReport(false);
   bleGamepadConfig.setButtonCount(16);
   bleGamepadConfig.setHatSwitchCount(1);
@@ -165,10 +169,6 @@ void setup() {
   pinMode(BUTTON_PIN, INPUT_PULLUP);
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, HIGH);
-
-  if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_GPIO) {
-    Serial.println(F("Woke from sleep"));
-  }
 
   Serial.println(F("Ready!"));
   delay(2000);
@@ -182,6 +182,23 @@ void loop() {
     batteryLevel = readBatteryLevel();
     lastBatteryMs = now;
 		bleGamepad.setBatteryLevel((uint8_t)(batteryLevel * 100.0));
+  }
+
+  // Deep sleep on button hold
+  if (digitalRead(BUTTON_PIN) == LOW) {
+    if (sleepPressStart == 0) {
+      sleepPressStart = now;
+    } else if (now - sleepPressStart >= SLEEP_HOLD_MS) {
+      Serial.println(F("Going to deep sleep..."));
+      delay(2000);
+      while (digitalRead(BUTTON_PIN) == LOW) delay(10);
+      delay(50);
+      digitalWrite(LED_PIN, LOW);
+      esp_deep_sleep_enable_gpio_wakeup(BIT(BUTTON_PIN), ESP_GPIO_WAKEUP_GPIO_LOW);
+      esp_deep_sleep_start();
+    }
+  } else {
+    sleepPressStart = 0;
   }
 
   // Wait for BLE connection
@@ -200,23 +217,6 @@ void loop() {
     } else {
       sendControllerState();
     }
-  }
-
-  // Deep sleep on button hold
-  if (digitalRead(BUTTON_PIN) == LOW) {
-    if (sleepPressStart == 0) {
-      sleepPressStart = now;
-    } else if (now - sleepPressStart >= SLEEP_HOLD_MS) {
-      Serial.println(F("Going to deep sleep..."));
-      delay(2000);
-      while (digitalRead(BUTTON_PIN) == LOW) delay(10);
-      delay(50);
-      digitalWrite(LED_PIN, LOW);
-      esp_deep_sleep_enable_gpio_wakeup(BIT(BUTTON_PIN), ESP_GPIO_WAKEUP_GPIO_LOW);
-      esp_deep_sleep_start();
-    }
-  } else {
-    sleepPressStart = 0;
   }
 
   delay(1000 / 60);
